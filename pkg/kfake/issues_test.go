@@ -399,6 +399,8 @@ func TestIssue906(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
+	defer client.Close()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -546,5 +548,65 @@ func TestIssueTimestampInclusivity(t *testing.T) {
 				test.ExpectedTimestamp,
 			)
 		}
+	}
+}
+
+// TestIssueCloseClusterStopGroupManagers ensures that when a cluster is closed,
+// any group managers are stopped.
+func TestIssueCloseClusterStopGroupManagers(t *testing.T) {
+	t.Skip("broken")
+
+	const (
+		testTopic        = "foo"
+		producedMessages = 5
+	)
+
+	c, err := NewCluster(NumBrokers(1), SeedTopics(1, testTopic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Inline anonymous function so that we can defer and cleanup within scope.
+	func() {
+		cl, err := kgo.NewClient(
+			kgo.DefaultProduceTopic(testTopic),
+			kgo.SeedBrokers(c.ListenAddrs()...),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cl.Close()
+
+		for i := 0; i < producedMessages; i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			err := cl.ProduceSync(ctx, kgo.StringRecord(strconv.Itoa(i))).FirstErr()
+			cancel()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}()
+
+	cl, err := kgo.NewClient(
+		kgo.SeedBrokers(c.ListenAddrs()...),
+		kgo.ConsumeTopics(testTopic),
+		kgo.ConsumerGroup("test-group"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	for consumed := 0; consumed != producedMessages; {
+		fs := cl.PollFetches(ctx)
+		if errs := fs.Errors(); errs != nil {
+			t.Errorf("consume error: %v", errs)
+			break
+		}
+		consumed += fs.NumRecords()
 	}
 }
