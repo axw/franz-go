@@ -47,6 +47,7 @@ type (
 		tRebalance *time.Timer
 
 		quit   sync.Once
+		wg     sync.WaitGroup
 		quitCh chan struct{}
 	}
 
@@ -148,6 +149,15 @@ func (gs *groups) newGroup(name string) *group {
 	}
 }
 
+// quitAll forcibly quits each of the group managers and waits for
+// their goroutines to exit. This is called when the cluster is
+// shutting down.
+func (gs *groups) quitAll() {
+	for _, g := range gs.gs {
+		g.quitOnce()
+	}
+}
+
 // handleJoin completely hijacks the incoming request.
 func (gs *groups) handleJoin(creq *clientReq) {
 	if gs.gs == nil {
@@ -158,9 +168,13 @@ start:
 	g := gs.gs[req.Group]
 	if g == nil {
 		g = gs.newGroup(req.Group)
+		g.wg.Add(1)
 		waitJoin := make(chan struct{})
 		gs.gs[req.Group] = g
-		go g.manage(func() { close(waitJoin) })
+		go g.manage(func() {
+			defer g.wg.Done()
+			close(waitJoin)
+		})
 		defer func() { <-waitJoin }()
 	}
 	select {
@@ -209,9 +223,13 @@ start:
 	g := gs.gs[req.Group]
 	if g == nil {
 		g = gs.newGroup(req.Group)
+		g.wg.Add(1)
 		waitCommit := make(chan struct{})
 		gs.gs[req.Group] = g
-		go g.manage(func() { close(waitCommit) })
+		go g.manage(func() {
+			defer g.wg.Done()
+			close(waitCommit)
+		})
 		defer func() { <-waitCommit }()
 	}
 	select {
@@ -624,6 +642,7 @@ func (g *group) quitOnce() {
 	g.quit.Do(func() {
 		g.state = groupDead
 		close(g.quitCh)
+		g.wg.Wait()
 	})
 }
 

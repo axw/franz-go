@@ -554,8 +554,6 @@ func TestIssueTimestampInclusivity(t *testing.T) {
 // TestIssueCloseClusterStopGroupManagers ensures that when a cluster is closed,
 // any group managers are stopped.
 func TestIssueCloseClusterStopGroupManagers(t *testing.T) {
-	t.Skip("broken")
-
 	const (
 		testTopic        = "foo"
 		producedMessages = 5

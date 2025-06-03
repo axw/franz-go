@@ -226,6 +226,7 @@ func (c *Cluster) Close() {
 	for _, b := range c.bs {
 		b.ln.Close()
 	}
+	c.groups.quitAll()
 }
 
 func newListener(port int, tc *tls.Config) (net.Listener, error) {
